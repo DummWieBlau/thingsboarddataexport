@@ -1,0 +1,20 @@
+{
+  "name": "thingsboarddataexport",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Simple Vue + Express app to export ThingsBoard telemetry as CSV",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "axios": "^1.9.0",
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "supertest": "^7.1.0"
+  }
+}
+

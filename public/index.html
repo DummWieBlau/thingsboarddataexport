@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ThingsBoard Telemetry Export</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 2rem; max-width: 720px; }
+      h1 { margin-bottom: 1.2rem; }
+      .field { margin-bottom: 0.8rem; }
+      label { display: block; font-weight: bold; margin-bottom: 0.25rem; }
+      input, select { width: 100%; padding: 0.5rem; box-sizing: border-box; }
+      button { padding: 0.6rem 1rem; cursor: pointer; }
+      .error { color: #b00020; margin-top: 0.8rem; }
+      .hint { color: #666; font-size: 0.9rem; }
+      .key-list { border: 1px solid #ddd; border-radius: 4px; padding: 0.5rem; max-height: 180px; overflow: auto; }
+      .key-item { display: flex; align-items: center; gap: 0.4rem; margin: 0.3rem 0; }
+      .row { display: flex; gap: 0.5rem; }
+      .row button { padding: 0.35rem 0.6rem; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <h1>Telemetry CSV Export</h1>
+
+      <div class="field">
+        <label for="deviceId">Device</label>
+        <select id="deviceId" v-model="form.deviceId" @change="onDeviceChange">
+          <option disabled value="">Select a device...</option>
+          <option v-for="device in devices" :key="device.id" :value="device.id">
+            {{ device.name }}
+          </option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>Telemetry Keys</label>
+        <div class="row" style="margin-bottom: 0.4rem;">
+          <button type="button" @click="selectAllKeys" :disabled="telemetryKeys.length === 0">Select all</button>
+          <button type="button" @click="clearKeys" :disabled="selectedKeys.length === 0">Clear</button>
+        </div>
+        <div class="key-list" v-if="telemetryKeys.length > 0">
+          <label class="key-item" v-for="key in telemetryKeys" :key="key">
+            <input type="checkbox" :value="key" v-model="selectedKeys" style="width: auto;" />
+            <span>{{ key }}</span>
+          </label>
+        </div>
+        <p class="hint" v-else>No telemetry keys found for this device.</p>
+      </div>
+
+      <div class="field">
+        <label for="timePreset">Quick Time Range</label>
+        <div class="row">
+          <select id="timePreset" v-model="selectedTimePreset" v-on:change="applyTimePreset">
+            <option value="last1h">Last 1 hour</option>
+            <option value="last6h">Last 6 hours</option>
+            <option value="last24h">Last 24 hours</option>
+            <option value="today">Today</option>
+            <option value="yesterday">Yesterday</option>
+            <option value="last7d">Last 7 days</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="startAt">Start Time</label>
+        <input id="startAt" v-model="form.startAt" type="datetime-local" step="1" />
+      </div>
+
+      <div class="field">
+        <label for="endAt">End Time</label>
+        <input id="endAt" v-model="form.endAt" type="datetime-local" step="1" />
+      </div>
+
+      <div class="field">
+        <label for="limit">Limit</label>
+        <input id="limit" v-model.number="form.limit" type="number" min="1" />
+      </div>
+
+      <button :disabled="loading" @click="downloadCsv">
+        {{ loading ? "Exporting..." : "Export CSV" }}
+      </button>
+
+      <p class="error" v-if="error">{{ error }}</p>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+    <script>
+      const { createApp } = Vue;
+
+      createApp({
+        data() {
+          const now = Date.now();
+          const oneDayMs = 24 * 60 * 60 * 1000;
+          const toDatetimeLocal = (timestampMs) => {
+            const d = new Date(timestampMs);
+            const pad = (value) => String(value).padStart(2, "0");
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+          };
+          return {
+            loading: false,
+            loadingDevices: false,
+            loadingKeys: false,
+            error: "",
+            devices: [],
+            telemetryKeys: [],
+            selectedKeys: [],
+            selectedTimePreset: "last24h",
+            form: {
+              deviceId: "",
+              startAt: toDatetimeLocal(now - oneDayMs),
+              endAt: toDatetimeLocal(now),
+              limit: 100000
+            }
+          };
+        },
+        async mounted() {
+          await this.loadDevices();
+        },
+        methods: {
+          formatDatetimeLocal(timestampMs) {
+            const d = new Date(timestampMs);
+            const pad = (value) => String(value).padStart(2, "0");
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+          },
+          parseDatetimeLocal(value) {
+            const parsed = Date.parse(value);
+            return Number.isFinite(parsed) ? parsed : null;
+          },
+          setRangeFromTimestamps(startTs, endTs) {
+            this.form.startAt = this.formatDatetimeLocal(startTs);
+            this.form.endAt = this.formatDatetimeLocal(endTs);
+          },
+          applyTimePreset() {
+            const now = Date.now();
+            const oneHourMs = 60 * 60 * 1000;
+
+            if (this.selectedTimePreset === "last1h") {
+              this.setRangeFromTimestamps(now - oneHourMs, now);
+              return;
+            }
+
+            if (this.selectedTimePreset === "last6h") {
+              this.setRangeFromTimestamps(now - 6 * oneHourMs, now);
+              return;
+            }
+
+            if (this.selectedTimePreset === "last24h") {
+              this.setRangeFromTimestamps(now - 24 * oneHourMs, now);
+              return;
+            }
+
+            if (this.selectedTimePreset === "today") {
+              const start = new Date();
+              start.setHours(0, 0, 0, 0);
+              this.setRangeFromTimestamps(start.getTime(), now);
+              return;
+            }
+
+            if (this.selectedTimePreset === "yesterday") {
+              const start = new Date();
+              start.setHours(0, 0, 0, 0);
+              start.setDate(start.getDate() - 1);
+              const end = new Date(start);
+              end.setHours(23, 59, 59, 999);
+              this.setRangeFromTimestamps(start.getTime(), end.getTime());
+            }
+
+            if (this.selectedTimePreset === "last7d") {
+              const start = new Date();
+              start.setHours(0, 0, 0, 0);
+              start.setDate(start.getDate() - 7);
+              this.setRangeFromTimestamps(start.getTime(), now);
+            }
+          },
+          async loadDevices() {
+            this.loadingDevices = true;
+            this.error = "";
+
+            try {
+              const response = await fetch("/api/devices");
+              if (!response.ok) {
+                const body = await response.json().catch(() => ({}));
+                throw new Error(body.error || "Could not load devices");
+              }
+
+              const body = await response.json();
+              this.devices = Array.isArray(body.devices) ? body.devices : [];
+
+              if (this.devices.length > 0) {
+                this.form.deviceId = this.devices[0].id;
+                await this.loadKeys(this.form.deviceId);
+              }
+            } catch (err) {
+              this.error = err.message;
+            } finally {
+              this.loadingDevices = false;
+            }
+          },
+          async onDeviceChange() {
+            await this.loadKeys(this.form.deviceId);
+          },
+          async loadKeys(deviceId) {
+            this.loadingKeys = true;
+            this.selectedKeys = [];
+
+            try {
+              if (!deviceId) {
+                this.telemetryKeys = [];
+                return;
+              }
+
+              const response = await fetch(`/api/devices/${encodeURIComponent(deviceId)}/keys`);
+              if (!response.ok) {
+                const body = await response.json().catch(() => ({}));
+                throw new Error(body.error || "Could not load telemetry keys");
+              }
+
+              const body = await response.json();
+              this.telemetryKeys = Array.isArray(body.keys) ? body.keys : [];
+            } catch (err) {
+              this.telemetryKeys = [];
+              this.error = err.message;
+            } finally {
+              this.loadingKeys = false;
+            }
+          },
+          selectAllKeys() {
+            this.selectedKeys = [...this.telemetryKeys];
+          },
+          clearKeys() {
+            this.selectedKeys = [];
+          },
+          async downloadCsv() {
+            this.error = "";
+            this.loading = true;
+
+            try {
+              if (!this.form.deviceId) {
+                throw new Error("Please select a device");
+              }
+
+              if (this.selectedKeys.length === 0) {
+                throw new Error("Please select at least one telemetry key");
+              }
+
+              const startTs = this.parseDatetimeLocal(this.form.startAt);
+              const endTs = this.parseDatetimeLocal(this.form.endAt);
+              if (startTs == null || endTs == null) {
+                throw new Error("Please select valid start and end times");
+              }
+              if (startTs >= endTs) {
+                throw new Error("Start time must be before end time");
+              }
+
+              const response = await fetch("/api/export/csv", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  ...this.form,
+                  startTs,
+                  endTs,
+                  keys: this.selectedKeys.join(",")
+                })
+              });
+
+              if (!response.ok) {
+                const body = await response.json().catch(() => ({}));
+                throw new Error(body.error || "Export failed");
+              }
+
+              const blob = await response.blob();
+              const downloadUrl = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              const contentDisposition = response.headers.get("content-disposition") || "";
+              const match = contentDisposition.match(/filename=\"(.+)\"/);
+              a.href = downloadUrl;
+              a.download = match ? match[1] : "telemetry.csv";
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(downloadUrl);
+            } catch (err) {
+              this.error = err.message;
+            } finally {
+              this.loading = false;
+            }
+          }
+        }
+      }).mount("#app");
+    </script>
+  </body>
+</html>
+
