@@ -26,7 +26,6 @@
       <div class="field">
         <label for="deviceId">Device</label>
         <select id="deviceId" v-model="form.deviceId" @change="onDeviceChange">
-          <option disabled value="">Select a device...</option>
           <option v-for="device in devices" :key="device.id" :value="device.id">
             {{ device.name }}
           </option>
@@ -46,7 +45,7 @@
         </label>
       </div>
 
-      <div class="field">
+      <div class="field" id="telemetryKeysSection" style="visibility: collapse;display:flex; flex-direction: column;">
         <label>Telemetry Keys</label>
         <div class="row" style="margin-bottom: 0.4rem;">
           <button type="button" @click="selectAllKeys" :disabled="dailySumEnabled || telemetryKeys.length === 0">Select all</button>
@@ -69,7 +68,8 @@
             <option value="last24h">Last 24 hours</option>
             <option value="today">Today</option>
             <option value="yesterday">Yesterday</option>
-            <option value="last7d">Last 7 days</option>
+            <option value="last7d" selected="selected">Last 7 days</option>
+            <option value="last4w">Last 4 weeks</option>
           </select>
         </div>
       </div>
@@ -186,7 +186,20 @@
               const start = new Date();
               start.setHours(0, 0, 0, 0);
               start.setDate(start.getDate() - 7);
-              this.setRangeFromTimestamps(start.getTime(), now);
+              const end = new Date();
+              end.setHours(23, 59, 59, 999);
+              end.setDate(end.getDate() - 1);
+              this.setRangeFromTimestamps(start.getTime(), end.getTime());
+            }
+
+            if (this.selectedTimePreset === "last4w") {
+              const start = new Date();
+              start.setHours(0, 0, 0, 0);
+              start.setDate(start.getDate() - 28);
+              const end = new Date();
+              end.setHours(23, 59, 59, 999);
+              end.setDate(end.getDate() - 1);
+              this.setRangeFromTimestamps(start.getTime(), end.getTime());
             }
           },
           async loadDevices() {
@@ -260,10 +273,11 @@
             if (this.dailySumEnabled) {
               this.previousSelectedKeys = [...this.selectedKeys];
               this.selectedKeys = ["difference"];
+              document.getElementById("telemetryKeysSection").style.visibility = "collapse";
               return;
             }
-
             const restored = this.previousSelectedKeys.filter((key) => this.telemetryKeys.includes(key));
+            document.getElementById("telemetryKeysSection").style.visibility = "visible";
             this.selectedKeys = restored;
           },
           async downloadCsv() {
