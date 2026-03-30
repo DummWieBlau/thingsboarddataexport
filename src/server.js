@@ -2,6 +2,7 @@ const express = require("express");
 const path = require("path");
 const {
   exportTelemetryCsv,
+  exportTelemetryXlsx,
   listDevices,
   listDeviceTelemetryKeys
 } = require("./thingsboard");
@@ -9,6 +10,7 @@ const {
 function createApp(deps = {}) {
   const app = express();
   const exportCsv = deps.exportCsv || exportTelemetryCsv;
+  const exportXlsx = deps.exportXlsx || exportTelemetryXlsx;
   const getDevices = deps.getDevices || listDevices;
   const getTelemetryKeys = deps.getTelemetryKeys || listDeviceTelemetryKeys;
 
@@ -68,6 +70,40 @@ function createApp(deps = {}) {
       res.setHeader("Content-Type", "text/csv; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.status(200).send(csv);
+    } catch (error) {
+      res.status(400).json({
+        error: error.message || "Failed to export telemetry"
+      });
+    }
+  });
+
+  app.post("/api/export/xlsx", async (req, res) => {
+    try {
+      const now = Date.now();
+      const {
+        deviceId,
+        keys,
+        startTs = now - 24 * 60 * 60 * 1000,
+        endTs = now,
+        limit = 100000,
+        agg = "NONE",
+        interval
+      } = req.body || {};
+
+      const xlsx = await exportXlsx({
+        deviceId,
+        keys,
+        startTs,
+        endTs,
+        limit,
+        agg,
+        interval
+      });
+
+      const filename = `telemetry-${deviceId}-${Date.now()}.xlsx`;
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.status(200).send(xlsx);
     } catch (error) {
       res.status(400).json({
         error: error.message || "Failed to export telemetry"

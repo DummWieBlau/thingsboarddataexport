@@ -1,6 +1,7 @@
 const axios = require("axios");
 const { TB_CONFIG } = require("./config");
 const { normalizeKeys, telemetryToCsv } = require("./csv");
+const { telemetryToXlsx } = require("./xlsx");
 
 async function getAuthToken() {
   const response = await axios.post(
@@ -128,9 +129,38 @@ async function exportTelemetryCsv({ deviceId, keys, startTs, endTs, limit, agg, 
   return telemetryToCsv(telemetry, normalizedKeys);
 }
 
+async function exportTelemetryXlsx({ deviceId, keys, startTs, endTs, limit, agg, interval }) {
+  const normalizedKeys = normalizeKeys(keys);
+
+  if (!deviceId) {
+    throw new Error("deviceId is required");
+  }
+
+  if (normalizedKeys.length === 0) {
+    throw new Error("At least one telemetry key is required");
+  }
+
+  const token = await getAuthToken();
+  const telemetry = await fetchTelemetry({
+    token,
+    deviceId,
+    keys: normalizedKeys,
+    startTs,
+    endTs,
+    limit,
+    agg,
+    interval
+  });
+
+  return telemetryToXlsx(telemetry, normalizedKeys);
+}
+
 module.exports = {
   exportTelemetryCsv,
+  exportTelemetryXlsx,
   listDevices,
-  listDeviceTelemetryKeys
+  listDeviceTelemetryKeys,
+  fetchTelemetry,
+  getAuthToken
 };
 

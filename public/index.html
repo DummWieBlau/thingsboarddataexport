@@ -45,7 +45,7 @@
         </label>
       </div>
 
-      <div class="field" id="telemetryKeysSection" style="visibility: collapse;display:flex; flex-direction: column;">
+      <div class="field" id="telemetryKeysSection" style="display:none; flex-direction: column;">
         <label>Telemetry Keys</label>
         <div class="row" style="margin-bottom: 0.4rem;">
           <button type="button" @click="selectAllKeys" :disabled="dailySumEnabled || telemetryKeys.length === 0">Select all</button>
@@ -63,11 +63,6 @@
         <label for="timePreset">Quick Time Range</label>
         <div class="row">
           <select id="timePreset" v-model="selectedTimePreset" v-on:change="applyTimePreset">
-            <option value="last1h">Last 1 hour</option>
-            <option value="last6h">Last 6 hours</option>
-            <option value="last24h">Last 24 hours</option>
-            <option value="today">Today</option>
-            <option value="yesterday">Yesterday</option>
             <option value="last7d" selected="selected">Last 7 days</option>
             <option value="last4w">Last 4 weeks</option>
           </select>
@@ -76,12 +71,12 @@
 
       <div class="field">
         <label for="startAt">Start Time</label>
-        <input id="startAt" v-model="form.startAt" type="datetime-local" step="1" />
+        <input id="startAt" v-model="form.startAt" type="date" step="1" />
       </div>
 
       <div class="field">
         <label for="endAt">End Time</label>
-        <input id="endAt" v-model="form.endAt" type="datetime-local" step="1" />
+        <input id="endAt" v-model="form.endAt" type="date" step="1" />
       </div>
 
       <div class="field">
@@ -92,6 +87,9 @@
       <div class="row">
         <button :disabled="loading" @click="downloadCsv">
           {{ loading ? "Exporting..." : "Export CSV" }}
+        </button>
+        <button :disabled="loading" @click="downloadXlsx">
+          {{ loading ? "Exporting..." : "Export XLSX" }}
         </button>
       </div>
 
@@ -105,11 +103,11 @@
       createApp({
         data() {
           const now = Date.now();
-          const oneDayMs = 24 * 60 * 60 * 1000;
-          const toDatetimeLocal = (timestampMs) => {
+          const sevenDayMs = 24 * 60 * 60 * 1000 * 7;
+          const toDateInput = (timestampMs) => {
             const d = new Date(timestampMs);
             const pad = (value) => String(value).padStart(2, "0");
-            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
           };
           return {
             loading: false,
@@ -121,11 +119,11 @@
             selectedKeys: [],
             previousSelectedKeys: [],
             dailySumEnabled: true,
-            selectedTimePreset: "last24h",
+            selectedTimePreset: "last7d",
             form: {
               deviceId: "",
-              startAt: toDatetimeLocal(now - oneDayMs),
-              endAt: toDatetimeLocal(now),
+              startAt: toDateInput(now - sevenDayMs),
+              endAt: toDateInput(now),
               limit: 100000
             }
           };
@@ -137,11 +135,41 @@
           formatDatetimeLocal(timestampMs) {
             const d = new Date(timestampMs);
             const pad = (value) => String(value).padStart(2, "0");
-            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
           },
           parseDatetimeLocal(value) {
-            const parsed = Date.parse(value);
-            return Number.isFinite(parsed) ? parsed : null;
+            if (typeof value !== "string") {
+              return null;
+            }
+
+            const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (!match) {
+              return null;
+            }
+
+            const year = Number(match[1]);
+            const monthIndex = Number(match[2]) - 1;
+            const day = Number(match[3]);
+
+            if (!Number.isInteger(year) || !Number.isInteger(monthIndex) || !Number.isInteger(day)) {
+              return null;
+            }
+
+            return { year, monthIndex, day };
+          },
+          toStartOfDayTimestamp(value) {
+            const parts = this.parseDatetimeLocal(value);
+            if (!parts) {
+              return null;
+            }
+            return new Date(parts.year, parts.monthIndex, parts.day, 0, 0, 0, 0).getTime();
+          },
+          toEndOfDayTimestamp(value) {
+            const parts = this.parseDatetimeLocal(value);
+            if (!parts) {
+              return null;
+            }
+            return new Date(parts.year, parts.monthIndex, parts.day, 23, 59, 59, 999).getTime();
           },
           setRangeFromTimestamps(startTs, endTs) {
             this.form.startAt = this.formatDatetimeLocal(startTs);
@@ -149,38 +177,6 @@
           },
           applyTimePreset() {
             const now = Date.now();
-            const oneHourMs = 60 * 60 * 1000;
-
-            if (this.selectedTimePreset === "last1h") {
-              this.setRangeFromTimestamps(now - oneHourMs, now);
-              return;
-            }
-
-            if (this.selectedTimePreset === "last6h") {
-              this.setRangeFromTimestamps(now - 6 * oneHourMs, now);
-              return;
-            }
-
-            if (this.selectedTimePreset === "last24h") {
-              this.setRangeFromTimestamps(now - 24 * oneHourMs, now);
-              return;
-            }
-
-            if (this.selectedTimePreset === "today") {
-              const start = new Date();
-              start.setHours(0, 0, 0, 0);
-              this.setRangeFromTimestamps(start.getTime(), now);
-              return;
-            }
-
-            if (this.selectedTimePreset === "yesterday") {
-              const start = new Date();
-              start.setHours(0, 0, 0, 0);
-              start.setDate(start.getDate() - 1);
-              const end = new Date(start);
-              end.setHours(23, 59, 59, 999);
-              this.setRangeFromTimestamps(start.getTime(), end.getTime());
-            }
 
             if (this.selectedTimePreset === "last7d") {
               const start = new Date();
@@ -273,11 +269,11 @@
             if (this.dailySumEnabled) {
               this.previousSelectedKeys = [...this.selectedKeys];
               this.selectedKeys = ["difference"];
-              document.getElementById("telemetryKeysSection").style.visibility = "collapse";
+              document.getElementById("telemetryKeysSection").style.display = "none";
               return;
             }
             const restored = this.previousSelectedKeys.filter((key) => this.telemetryKeys.includes(key));
-            document.getElementById("telemetryKeysSection").style.visibility = "visible";
+            document.getElementById("telemetryKeysSection").style.display = "flex";
             this.selectedKeys = restored;
           },
           async downloadCsv() {
@@ -296,8 +292,8 @@
                 throw new Error("Please select at least one telemetry key");
               }
 
-              const startTs = this.parseDatetimeLocal(this.form.startAt);
-              const endTs = this.parseDatetimeLocal(this.form.endAt);
+              const startTs = this.toStartOfDayTimestamp(this.form.startAt);
+              const endTs = this.toEndOfDayTimestamp(this.form.endAt);
               if (startTs == null || endTs == null) {
                 throw new Error("Please select valid start and end times");
               }
@@ -330,6 +326,67 @@
               const a = document.createElement("a");
               a.href = downloadUrl;
               a.download = (this.dailySumEnabled ? "telemetry-daily-sum.csv" : "telemetry.csv");
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              URL.revokeObjectURL(downloadUrl);
+            } catch (err) {
+              this.error = err.message;
+            } finally {
+              this.loading = false;
+            }
+          },
+
+          async downloadXlsx() {
+            this.error = "";
+            this.loading = true;
+
+            try {
+              const agg = this.dailySumEnabled ? "SUM" : "NONE";
+              const interval = this.dailySumEnabled ? (24 * 60 * 60 * 1000) : undefined;
+
+              if (!this.form.deviceId) {
+                throw new Error("Please select a device");
+              }
+
+              if (this.selectedKeys.length === 0) {
+                throw new Error("Please select at least one telemetry key");
+              }
+
+              const startTs = this.toStartOfDayTimestamp(this.form.startAt);
+              const endTs = this.toEndOfDayTimestamp(this.form.endAt);
+              if (startTs == null || endTs == null) {
+                throw new Error("Please select valid start and end times");
+              }
+              if (startTs >= endTs) {
+                throw new Error("Start time must be before end time");
+              }
+
+              const response = await fetch("/api/export/xlsx", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  ...this.form,
+                  startTs,
+                  endTs,
+                  keys: this.selectedKeys.join(","),
+                  agg,
+                  interval
+                })
+              });
+
+              if (!response.ok) {
+                const body = await response.json().catch(() => ({}));
+                throw new Error(body.error || "Export failed");
+              }
+
+              const blob = await response.blob();
+              const downloadUrl = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = downloadUrl;
+              a.download = (this.dailySumEnabled ? "telemetry-daily-sum.xlsx" : "telemetry.xlsx");
               document.body.appendChild(a);
               a.click();
               a.remove();
