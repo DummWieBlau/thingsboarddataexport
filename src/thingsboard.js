@@ -77,18 +77,24 @@ async function listDeviceTelemetryKeys(deviceId) {
   return keys.map((key) => String(key).trim()).filter(Boolean);
 }
 
-async function fetchTelemetry({ token, deviceId, keys, startTs, endTs, limit, agg }) {
+async function fetchTelemetry({ token, deviceId, keys, startTs, endTs, limit, agg, interval }) {
+  const params = {
+    keys: keys.join(","),
+    startTs,
+    endTs,
+    limit,
+    agg
+  };
+
+  if (Number.isFinite(Number(interval)) && Number(interval) > 0) {
+    params.interval = Number(interval);
+  }
+
   const response = await axios.get(
     `${TB_CONFIG.host}/api/plugins/telemetry/DEVICE/${encodeURIComponent(deviceId)}/values/timeseries`,
     {
       headers: authHeaders(token),
-      params: {
-        keys: keys.join(","),
-        startTs,
-        endTs,
-        limit,
-        agg
-      },
+      params,
       timeout: 15000
     }
   );
@@ -96,7 +102,7 @@ async function fetchTelemetry({ token, deviceId, keys, startTs, endTs, limit, ag
   return response.data || {};
 }
 
-async function exportTelemetryCsv({ deviceId, keys, startTs, endTs, limit, agg }) {
+async function exportTelemetryCsv({ deviceId, keys, startTs, endTs, limit, agg, interval }) {
   const normalizedKeys = normalizeKeys(keys);
 
   if (!deviceId) {
@@ -115,7 +121,8 @@ async function exportTelemetryCsv({ deviceId, keys, startTs, endTs, limit, agg }
     startTs,
     endTs,
     limit,
-    agg
+    agg,
+    interval
   });
 
   return telemetryToCsv(telemetry, normalizedKeys);

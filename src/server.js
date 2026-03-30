@@ -50,7 +50,8 @@ function createApp(deps = {}) {
         startTs = now - 24 * 60 * 60 * 1000,
         endTs = now,
         limit = 100000,
-        agg = "NONE"
+        agg = "NONE",
+        interval
       } = req.body || {};
 
       const csv = await exportCsv({
@@ -59,7 +60,8 @@ function createApp(deps = {}) {
         startTs,
         endTs,
         limit,
-        agg
+        agg,
+        interval
       });
 
       const filename = `telemetry-${deviceId}-${Date.now()}.csv`;

@@ -43,6 +43,29 @@ test("POST /api/export/csv returns csv payload", async () => {
   assert.equal(response.text, "timestamp,temperature\n2026-01-01T00:00:00.000Z,20\n");
 });
 
+test("POST /api/export/csv forwards agg and interval", async () => {
+  let capturedArgs;
+  const app = createApp({
+    exportCsv: async (args) => {
+      capturedArgs = args;
+      return "timestamp,temperature\n";
+    }
+  });
+
+  await request(app)
+    .post("/api/export/csv")
+    .send({
+      deviceId: "device-1",
+      keys: "temperature",
+      agg: "SUM",
+      interval: 86400000
+    })
+    .expect(200);
+
+  assert.equal(capturedArgs.agg, "SUM");
+  assert.equal(capturedArgs.interval, 86400000);
+});
+
 test("GET /api/devices returns dynamic devices", async () => {
   const app = createApp({
     getDevices: async () => [

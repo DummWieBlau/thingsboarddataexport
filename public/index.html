@@ -34,19 +34,31 @@
       </div>
 
       <div class="field">
+        <label class="key-item">
+          <input
+            type="checkbox"
+            checked="checked"
+            v-model="dailySumEnabled"
+            @change="onDailySumToggle"
+            style="width: auto;"
+          />
+          <span>Daily Aggregation</span>
+        </label>
+      </div>
+
+      <div class="field">
         <label>Telemetry Keys</label>
         <div class="row" style="margin-bottom: 0.4rem;">
-          <button type="button" @click="selectAllKeys" :disabled="telemetryKeys.length === 0">Select all</button>
-          <button type="button" @click="clearKeys" :disabled="selectedKeys.length === 0">Clear</button>
+          <button type="button" @click="selectAllKeys" :disabled="dailySumEnabled || telemetryKeys.length === 0">Select all</button>
+          <button type="button" @click="clearKeys" :disabled="dailySumEnabled || selectedKeys.length === 0">Clear</button>
         </div>
         <div class="key-list" v-if="telemetryKeys.length > 0">
           <label class="key-item" v-for="key in telemetryKeys" :key="key">
-            <input type="checkbox" :value="key" v-model="selectedKeys" style="width: auto;" />
+            <input type="checkbox" :value="key" v-model="selectedKeys" :disabled="dailySumEnabled" style="width: auto;" />
             <span>{{ key }}</span>
           </label>
         </div>
-        <p class="hint" v-else>No telemetry keys found for this device.</p>
-      </div>
+        </div>
 
       <div class="field">
         <label for="timePreset">Quick Time Range</label>
@@ -77,9 +89,11 @@
         <input id="limit" v-model.number="form.limit" type="number" min="1" />
       </div>
 
-      <button :disabled="loading" @click="downloadCsv">
-        {{ loading ? "Exporting..." : "Export CSV" }}
-      </button>
+      <div class="row">
+        <button :disabled="loading" @click="downloadCsv">
+          {{ loading ? "Exporting..." : "Export CSV" }}
+        </button>
+      </div>
 
       <p class="error" v-if="error">{{ error }}</p>
     </div>
@@ -105,6 +119,8 @@
             devices: [],
             telemetryKeys: [],
             selectedKeys: [],
+            previousSelectedKeys: [],
+            dailySumEnabled: true,
             selectedTimePreset: "last24h",
             form: {
               deviceId: "",
@@ -218,6 +234,15 @@
 
               const body = await response.json();
               this.telemetryKeys = Array.isArray(body.keys) ? body.keys : [];
+              if (this.dailySumEnabled) {
+                if(this.telemetryKeys.includes("difference")) {
+                  this.selectedKeys = ["difference"];
+                } else if (this.telemetryKeys.includes("gasCount")) {
+                  this.selectedKeys = ["gasCount"];
+                } else {
+                  this.selectedKeys = [];
+                }
+              }
             } catch (err) {
               this.telemetryKeys = [];
               this.error = err.message;
@@ -231,11 +256,24 @@
           clearKeys() {
             this.selectedKeys = [];
           },
+          onDailySumToggle() {
+            if (this.dailySumEnabled) {
+              this.previousSelectedKeys = [...this.selectedKeys];
+              this.selectedKeys = ["difference"];
+              return;
+            }
+
+            const restored = this.previousSelectedKeys.filter((key) => this.telemetryKeys.includes(key));
+            this.selectedKeys = restored;
+          },
           async downloadCsv() {
             this.error = "";
             this.loading = true;
 
             try {
+              const agg = this.dailySumEnabled ? "SUM" : "NONE";
+              const interval = this.dailySumEnabled ? (24 * 60 * 60 * 1000) : undefined;
+
               if (!this.form.deviceId) {
                 throw new Error("Please select a device");
               }
@@ -262,7 +300,9 @@
                   ...this.form,
                   startTs,
                   endTs,
-                  keys: this.selectedKeys.join(",")
+                  keys: this.selectedKeys.join(","),
+                  agg,
+                  interval
                 })
               });
 
@@ -274,10 +314,8 @@
               const blob = await response.blob();
               const downloadUrl = URL.createObjectURL(blob);
               const a = document.createElement("a");
-              const contentDisposition = response.headers.get("content-disposition") || "";
-              const match = contentDisposition.match(/filename=\"(.+)\"/);
               a.href = downloadUrl;
-              a.download = match ? match[1] : "telemetry.csv";
+              a.download = (this.dailySumEnabled ? "telemetry-daily-sum.csv" : "telemetry.csv");
               document.body.appendChild(a);
               a.click();
               a.remove();
