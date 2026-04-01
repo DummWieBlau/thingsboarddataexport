@@ -30,9 +30,9 @@ function telemetryToXlsx(telemetry, selectedKeys) {
   const data = [["timestamp", ...keys]];
 
   for (const row of rows) {
-    const line = [new Date(row.ts).toISOString()];
+    const line = [new Date(row.ts).toISOString().substring(0, 10)];
     for (const key of keys) {
-      let value = row[key] == null ? "" : row[key];
+      let value = row[key] == null ? "" : parseFloat(row[key]).toFixed(2);
       value = value.replaceAll(".",",");
       line.push(value);
     }
