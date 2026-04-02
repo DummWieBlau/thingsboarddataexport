@@ -28,15 +28,21 @@ function telemetryToXlsx(telemetry, selectedKeys) {
 
   const rows = Array.from(tsMap.values()).sort((a, b) => a.ts - b.ts);
   const data = [["timestamp", ...keys]];
-
+  let lastDay = new Date(rows[0].ts);
+  lastDay.setHours(0,0,0,0);
+  lastDay.setDate(lastDay.getDate() - 1);
   for (const row of rows) {
+    while (new Date(row.ts).setHours(0,0,0,0) > lastDay.getTime() + 24*60*60*1000 ) {
+      lastDay.setDate(lastDay.getDate() + 1);
+      data.push([lastDay.toISOString().substring(0, 10), 0]);
+    }
     const line = [new Date(row.ts).toISOString().substring(0, 10)];
     for (const key of keys) {
-      let value = row[key] == null ? "" : parseFloat(row[key]).toFixed(2);
-      value = value.replaceAll(".",",");
+      let value = row[key] == null ? "" : parseFloat(row[key]);
       line.push(value);
     }
     data.push(line);
+    lastDay = new Date(new Date(new Date(row.ts).setHours(0,0,0,0)));
   }
 
   const worksheet = XLSX.utils.aoa_to_sheet(data);
